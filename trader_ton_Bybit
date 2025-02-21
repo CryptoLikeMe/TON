@@ -1,0 +1,89 @@
+const axios = require("axios");
+const crypto = require("crypto");
+
+const API_KEY = "your_api_key";
+const API_SECRET = "your_api_secret";
+const BASE_URL = "https://api.bybit.com";
+
+const symbol = "TONUSDT"; // Торговая пара
+const amountInUSDT = 50; // Сумма сделки в USDT
+
+// Функция подписи запроса
+function signRequest(params) {
+    params.api_key = API_KEY;
+    params.timestamp = Date.now();
+    
+    const query = Object.keys(params)
+        .sort()
+        .map((key) => `${key}=${params[key]}`)
+        .join("&");
+    
+    params.sign = crypto.createHmac("sha256", API_SECRET).update(query).digest("hex");
+    return params;
+}
+
+// Получить текущую цену TON
+async function getMarketPrice() {
+    try {
+        const response = await axios.get(`${BASE_URL}/v2/public/tickers`, {
+            params: { symbol },
+        });
+        return parseFloat(response.data.result.last_price);
+    } catch (error) {
+        console.error("Ошибка получения цены:", error.response?.data || error.message);
+        return null;
+    }
+}
+
+// Разместить рыночный ордер (покупка или продажа)
+async function placeOrder(side, qty) {
+    try {
+        const params = signRequest({
+            symbol,
+            side, // "Buy" или "Sell"
+            order_type: "Market",
+            qty,
+            time_in_force: "GoodTillCancel",
+        });
+
+        const response = await axios.post(`${BASE_URL}/v2/private/order/create`, null, { params });
+        console.log(`✅ Ордер ${side} успешно создан:`, response.data);
+        return response.data;
+    } catch (error) {
+        console.error(`❌ Ошибка при размещении ордера ${side}:`, error.response?.data || error.message);
+        return null;
+    }
+}
+
+// Основная функция
+async function trade() {
+    try {
+        const price = await getMarketPrice();
+        if (!price) return;
+        
+        console.log(`🔹 Текущая цена TON: ${price} USDT`);
+        
+        // Рассчитать количество монет для покупки
+        const qty = (amountInUSDT / price).toFixed(2);
+        console.log(`🔹 Покупаем ${qty} TON`);
+
+        // Разместить ордер на покупку
+        const buyOrder = await placeOrder("Buy", qty);
+        if (!buyOrder) return;
+
+        console.log("⏳ Ожидание 10 секунд перед продажей...");
+        await new Promise((resolve) => setTimeout(resolve, 10000));
+
+        // Разместить ордер на продажу
+        const sellOrder = await placeOrder("Sell", qty);
+        if (!sellOrder) return;
+
+        console.log("✅ Торговля завершена!");
+
+    } catch (error) {
+        console.error("❌ Ошибка в торговом боте:", error);
+    }
+}
+
+// Запуск скрипта
+trade();
